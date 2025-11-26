@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>구구단 산성비 게임</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            color: white;
+            font-family: 'Pretendard', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 게임 컨테이너 */
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background-color: #000;
+            border: 4px solid #00ff00; /* 레트로 느낌의 녹색 테두리 */
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+            overflow: hidden;
+        }
+
+        /* 상단 정보창 (점수, 생명) */
+        #ui-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            box-sizing: border-box;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 10;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        /* 떨어지는 문제 스타일 */
+        .drop {
+            position: absolute;
+            color: #00ff00; /* 산성비 색깔 */
+            font-size: 20px;
+            font-weight: bold;
+            user-select: none;
+        }
+
+        /* 하단 입력창 영역 */
+        #input-area {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 60px;
+            background-color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-top: 2px solid #555;
+            z-index: 10;
+        }
+
+        #answer-input {
+            width: 300px;
+            padding: 10px;
+            font-size: 20px;
+            text-align: center;
+            border: 2px solid #00ff00;
+            background-color: #111;
+            color: white;
+            outline: none;
+        }
+
+        /* 게임 오버 / 시작 화면 오버레이 */
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+
+        button {
+            padding: 15px 30px;
+            font-size: 20px;
+            background-color: #00ff00;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        button:hover {
+            background-color: #00cc00;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- 점수 및 생명 표시 -->
+        <div id="ui-header">
+            <span>점수: <span id="score">0</span></span>
+            <span>생명: <span id="lives">❤️❤️❤️</span></span>
+        </div>
+
+        <!-- 게임 시작/종료 오버레이 -->
+        <div id="overlay">
+            <h1 id="overlay-title">구구단 산성비</h1>
+            <p id="overlay-msg">정답을 입력해서 산성비를 막으세요!</p>
+            <button onclick="startGame()">게임 시작</button>
+        </div>
+
+        <!-- 빗방울들이 생성될 공간 (JS로 제어) -->
+        <div id="rain-area"></div>
+
+        <!-- 입력창 -->
+        <div id="input-area">
+            <input type="number" id="answer-input" placeholder="정답 입력 후 엔터" autocomplete="off">
+        </div>
+    </div>
+
+    <script>
+        const gameContainer = document.getElementById('game-container');
+        const rainArea = document.getElementById('rain-area');
+        const inputField = document.getElementById('answer-input');
+        const scoreEl = document.getElementById('score');
+        const livesEl = document.getElementById('lives');
+        const overlay = document.getElementById('overlay');
+        const overlayTitle = document.getElementById('overlay-title');
+        const overlayMsg = document.getElementById('overlay-msg');
+
+        let score = 0;
+        let lives = 3;
+        let gameInterval;
+        let spawnInterval;
+        let drops = []; // 현재 화면에 있는 문제들
+        let gameSpeed = 2000; // 문제 생성 주기 (ms)
+        let dropSpeed = 1.5; // 떨어지는 속도
+
+        // 엔터키 이벤트 리스너
+        inputField.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                checkAnswer();
+            }
+        });
+
+        // 게임 시작 함수
+        function startGame() {
+            // 초기화
+            score = 0;
+            lives = 3;
+            drops = [];
+            gameSpeed = 2000;
+            dropSpeed = 1.5;
+            rainArea.innerHTML = ''; // 화면 비우기
+            updateUI();
+            
+            overlay.style.display = 'none';
+            inputField.value = '';
+            inputField.focus();
+
+            // 게임 루프 시작
+            clearInterval(spawnInterval);
+            clearInterval(gameInterval);
+
+            // 문제 생성 루프
+            spawnInterval = setInterval(createDrop, gameSpeed);
+            
+            // 화면 갱신 루프 (60fps)
+            gameInterval = setInterval(updateGame, 16);
+        }
+
+        // 문제(빗방울) 생성
+        function createDrop() {
+            const a = Math.floor(Math.random() * 8) + 2; // 2~9단
+            const b = Math.floor(Math.random() * 9) + 1; // 1~9
+            const problem = `${a} x ${b}`;
+            const answer = a * b;
+
+            const dropEl = document.createElement('div');
+            dropEl.classList.add('drop');
+            dropEl.innerText = problem;
+            
+            // 랜덤 가로 위치 (0 ~ 700px 사이)
+            const randomLeft = Math.floor(Math.random() * 700) + 20;
+            dropEl.style.left = randomLeft + 'px';
+            dropEl.style.top = '0px';
+
+            rainArea.appendChild(dropEl);
+
+            // 데이터 저장
+            drops.push({
+                element: dropEl,
+                answer: answer,
+                y: 0
+            });
+        }
+
+        // 게임 상태 업데이트 (움직임, 충돌 처리)
+        function updateGame() {
+            // 난이도 조절: 점수가 오를수록 속도 증가
+            if (score > 50) dropSpeed = 2.0;
+            if (score > 100) dropSpeed = 2.5;
+
+            // 모든 빗방울 아래로 이동
+            for (let i = 0; i < drops.length; i++) {
+                let drop = drops[i];
+                drop.y += dropSpeed;
+                drop.element.style.top = drop.y + 'px';
+
+                // 바닥에 닿았는지 확인 (게임 컨테이너 높이 - 입력창 높이 대략 540)
+                if (drop.y > 540) {
+                    // 오답 처리 (생명 감소)
+                    removeDrop(i);
+                    loseLife();
+                    i--; // 배열 크기가 줄어들었으므로 인덱스 조정
+                }
+            }
+        }
+
+        // 정답 확인
+        function checkAnswer() {
+            const userAnswer = parseInt(inputField.value);
+            if (isNaN(userAnswer)) return; // 숫자가 아니면 무시
+
+            let hit = false;
+            
+            // 화면에 있는 문제들 중 정답과 일치하는 것 찾기
+            // 여러 개일 경우 가장 아래에 있는 것부터 없앰
+            for (let i = 0; i < drops.length; i++) {
+                if (drops[i].answer === userAnswer) {
+                    removeDrop(i);
+                    score += 10;
+                    hit = true;
+                    break; // 하나만 없애고 멈춤
+                }
+            }
+
+            if (hit) {
+                // 정답 효과 (입력창 깜빡임 등 추가 가능)
+                updateUI();
+            }
+            
+            inputField.value = ''; // 입력창 비우기
+        }
+
+        // 빗방울 제거 함수
+        function removeDrop(index) {
+            if (drops[index] && drops[index].element) {
+                drops[index].element.remove(); // HTML 요소 삭제
+            }
+            drops.splice(index, 1); // 배열에서 삭제
+        }
+
+        // 생명 감소
+        function loseLife() {
+            lives--;
+            updateUI();
+            
+            // 화면 붉게 깜빡임 효과
+            gameContainer.style.boxShadow = "0 0 20px red";
+            setTimeout(() => {
+                gameContainer.style.boxShadow = "0 0 20px rgba(0, 255, 0, 0.5)";
+            }, 200);
+
+            if (lives <= 0) {
+                gameOver();
+            }
+        }
+
+        // UI 갱신
+        function updateUI() {
+            scoreEl.innerText = score;
+            let heartStr = "";
+            for(let i=0; i<lives; i++) heartStr += "❤️";
+            livesEl.innerText = heartStr;
+        }
+
+        // 게임 오버
+        function gameOver() {
+            clearInterval(spawnInterval);
+            clearInterval(gameInterval);
+            
+            overlayTitle.innerText = "게임 오버!";
+            overlayMsg.innerText = `최종 점수: ${score}점`;
+            overlay.style.display = 'flex';
+        }
+    </script>
+</body>
+</html>
